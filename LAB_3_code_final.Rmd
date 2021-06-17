@@ -1,0 +1,917 @@
+---
+title: "Lab_3"
+author: "Akiva Finkelstein & Amit Yaron"
+date: "11 6 2021"
+output:
+  html_document: default
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r,message=FALSE,warning=FALSE,echo=FALSE}
+library(glmnet)
+library(dplyr)
+library(forecast)
+library(tidyr)
+library(rsample) 
+library(caret) 
+library(datarium)
+library(plotly)
+library(kableExtra)
+library(gridExtra )
+library(readxl)
+library(ggplot2)
+library(dbplyr)
+library(tidyverse)
+library(TSstudio)
+library(date)
+library(Metrics)
+library(ggpubr)
+library(purrr)
+```
+#Q1.1
+```{r,message=FALSE,warning=FALSE,echo=FALSE}
+set.seed(7)
+samp_func <- function(n, lamda){
+epsilon <- rnorm(n = n,mean = 0,sd = sqrt(0.3))
+x <- runif(n = n,min = -2,max = 2)
+y <- sin(lamda*x) + 0.25*x^2 + ((x-0.4)/3)^3+epsilon
+pred_respo <- cbind(x,y)
+return(pred_respo)
+}
+train<-samp_func(20,1) #test the function
+```
+
+#Q1.2
+```{r,message=FALSE,warning=FALSE,echo=FALSE,fig.width=5, fig.height=3}
+#function to calculate Gaussian kernel
+# b=bandwidth
+gausinKernel <- function(xx,h){
+  
+   K <- (1/((sqrt(2*pi))))*exp(-0.5 *(xx/h)^2)
+  return(K)
+}
+
+
+#Kernel regression
+
+Kernel_func<-function(h,trainset,x0){
+  x<-trainset[,1]
+  y<-trainset[,2]
+  k <-c()
+  W<-matrix(data=NA,nrow = length(x0),ncol = length(x))
+  for (i in  1: length(x0)){
+    for(j in 1: length(x)){
+      k<-c(k,gausinKernel(x[j]-x0[i],h))
+    }
+    W[i,]<-k/sum(k)
+    k<-c()
+  }
+  
+ykernel<-cbind(x0,W%*%y)
+  
+return(ykernel)
+
+}
+
+```
+
+
+#Create The Data and the Test Data For Q1.3
+```{r,message=FALSE,warning=FALSE,echo=FALSE}
+set.seed(7)
+train_50_1.5<-samp_func(50,1.5)#Create The  Data n=50 lamda=1.5
+train_200_1.5<-samp_func(200,1.5)#Create The  Data n=50 lamda=1.5
+train_50_5<-samp_func(50,5)#Create The  Data n=50 lamda=1.5
+train_200_5<-samp_func(200,5)#Create The  Data n=50 lamda=1.5
+
+test_50_1.5<-samp_func(50,1.5)#Test the Data with  n=50 lamda=1.5
+test_200_1.5<-samp_func(200,1.5)#Test the Data with  n=200 lamda=1.5
+test_50_5<-samp_func(50,5)#Test the Data with  n=50 lamda=5
+test_200_5<-samp_func(200,5)#Test the Data with  n=200 lamda=5
+
+name<-c("N=50 lamda=1.5","N=50 lamda=5","N=200 lamda=1.5","N=200 lamda=5")
+
+```
+
+#Q1.3a
+#Here we can see that the Expected Optimism decrease as h go to  1.
+#When N=200 we see that the Expected Optimism lower then the Expected Optimism of N=50.
+#N=200 and lamda=5 give the lowest  Expected Optimism Among all  h = 0.2,0.5,1.
+#N=50 and lamda =5 give the highest Expected Optimism Among all  h = 0.2,0.5,1.
+
+
+```{r,message=FALSE,warning=FALSE,echo=FALSE,fig.width=5, fig.height=3}
+'
+W= Whight of the Y in the model
+    x_1   x_2 ... x_n
+x_1 K()   k()     k(x_1,x_n)/(sum  K() in  line 1)
+x_2
+x_3
+.
+.
+.
+x_n
+
+var( tset1[,2])#Calculate Sigma of the Y form the data 
+'
+h<-c(1,0.5,0.2)
+
+Eop<-function(train,n){
+  h<-c(1,0.5,0.2)
+  Eopx<-c()
+  for (i in h) {
+  sigma<-var(train[,2])#Calculate Sigma 
+  tr=0 #trace of the matrix W 
+  x <- train[,1]
+  y <- train[,2]
+  for(xesti in x ){
+    xx <-  xesti - x
+    K <-gausinKernel(xx,i)
+    tr =tr+gausinKernel(0,i)/sum(K) # Sum of Weight  y_i
+  }
+  Eopx<-c(Eopx,2*(sigma/n)*tr)
+  
+}
+return(Eopx)
+}
+
+#plot the data 
+h1<-c("1","0.5","0.2")
+
+data<-data.frame(h1,Eop(train_50_1.5,50),Eop(train_50_5,50),Eop(train_200_1.5,200),Eop(train_200_5,200))
+
+fig <- plot_ly(data, x = ~data$h1, y = ~data$Eop.train_50_1.5, type = 'bar', name = 'N=50,lamda=1.5')
+fig <- fig %>% add_trace(y = ~data$Eop.train_50_5, name = 'N=50,lamda=5')
+fig <- fig %>% add_trace(y = ~data$Eop.train_200_1.5, name = 'N=200,lamda=1.5')
+fig <- fig %>% add_trace(y = ~data$Eop.train_200_5, name = 'N=200,lamda=5')
+
+fig <- fig %>% layout(yaxis = list(title = 'Expected Optimism [Eop]  '), barmode = 'group',xaxis = list(title = "bandwidth parameter h"))
+
+fig
+
+
+```
+
+#Q1.3b
+#Here we can see that the Error measurement(RMSE,MAE,R2) increaseas h go to 1.lamda have mach more effect in the Error measurement(RMSE,MAE,R2)then the number of the observition (N).Also there is teadeoff here if R2 is high then the rmse also highand if R2 is low then the rmse also low.
+
+
+```{r,message=FALSE,warning=FALSE,echo=FALSE,fig.width=5, fig.height=3}
+
+library(Metrics)
+library(dplyr)
+five_fold <- function(data,h){
+  h1<-c("1","0.5","0.2")
+  Erorr<-c()
+  set.seed(7)
+  r<-runif(length(data[,1]),min=0,max=1)#Generate randon vector in 0,1
+  data1<-cbind(data,r)
+  data_shuffle<-data1[order(data1[,3]),]
+  z<-rep(1:5,length(data[,1]))
+  data_shuffle<-cbind(data_shuffle,z)
+  # Create Sub-data 
+  for(i in 1:5) {
+    assign(paste0("data_",i),data_shuffle%>%as.data.frame()%>%select(x,y,z)%>%filter(z==i))
+  }
+  data_1<-as.matrix(data_1)[,c(1,2)]
+  data_2<-as.matrix(data_2)[,c(1,2)]
+  data_3<-as.matrix(data_3)[,c(1,2)]
+  data_4<-as.matrix(data_4)[,c(1,2)]
+  data_5<-as.matrix(data_5)[,c(1,2)]
+
+  #Calculate Root Square
+  RSQUARE <-function(y_actual,y_predict){
+    sum((y_predict-y_actual)^2)/(var(y_actual)*length(y_actual))
+  }
+  
+  
+    
+#rmse,mae, r2  of Kernel Regression h
+    rmse1<-c()
+    mae1<-c()
+    r2<-c()
+    train1<-rbind(data_2,data_3,data_4,data_5)
+    pred1<-Kernel_func(h,train1,data_1[,1])
+    rmse1<-c(rmse1,rmse(data_1[,2],pred1[,2]))
+    mae1<-c(mae1,mae(data_1[,2],pred1[,2]))
+    r2<-c(r2,RSQUARE(data_1[,2],pred1[,2]))
+    
+    
+    
+    train1<-rbind(data_1,data_3,data_4,data_5)
+    pred1<-Kernel_func(h,train1,data_2[,1])
+    rmse1<-c(rmse1,rmse(data_2[,2],pred1[,2]))
+    mae1<-c(mae1,mae(data_2[,2],pred1[,2]))
+    r2<-c(r2,RSQUARE(data_2[,2],pred1[,2]))
+    
+    
+    train1<-rbind(data_2,data_1,data_4,data_5)
+    pred1<-Kernel_func(h,train1,data_3[,1])
+    rmse1<-c(rmse1,rmse(data_3[,2],pred1[,2]))
+    mae1<-c(mae1,mae(data_3[,2],pred1[,2]))
+    r2<-c(r2,RSQUARE(data_3[,2],pred1[,2]))
+    
+    train1<-rbind(data_2,data_3,data_1,data_5)
+    pred1<-Kernel_func(h,train1,data_4[,1])
+    rmse1<-c(rmse1,rmse(data_4[,2],pred1[,2]))
+    mae1<-c(mae1,mae(data_4[,2],pred1[,2]))
+    r2<-c(r2,RSQUARE(data_4[,2],pred1[,2]))
+    
+    train1<-rbind(data_2,data_3,data_4,data_1)
+    pred1<-Kernel_func(h,train1,data_5[,1])
+    rmse1<-c(rmse1,rmse(data_5[,2],pred1[,2]))
+    mae1<-c(mae1,mae(data_5[,2],pred1[,2]))
+    r2<-c(r2,RSQUARE(data_5[,2],pred1[,2]))
+    
+    Erorr<-c(mean(rmse1),mean(mae1),mean(r2))
+ 
+
+return(Erorr)           
+}
+
+#plot the data
+
+h1<-c("1","0.5","0.2")
+rmse1<-c()
+mae1<-c()
+R21<-c()
+
+rmse1<-c(rmse1,five_fold(train_50_1.5,1)[1],five_fold(train_50_1.5,0.5)[1],five_fold(train_50_1.5,0.2)[1])
+
+mae1<-c(mae1,five_fold(train_50_1.5,1)[2],five_fold(train_50_1.5,0.5)[2],five_fold(train_50_1.5,0.2)[2])
+
+R21<-c(R21,five_fold(train_50_1.5,1)[3],five_fold(train_50_1.5,0.5)[3],five_fold(train_50_1.5,0.2)[3])
+
+
+data4<-data.frame(h1,rmse1,mae1,R21)
+
+
+fig7 <- plot_ly(data4, x = ~h1, y =data4$rmse1, type = 'bar', name = 'Root Mean Squared Error',legendgroup = h1)
+fig7 <- fig7 %>% add_trace(y = ~data4$mae1, name = 'Mean Absolute Error')
+fig7 <- fig7 %>% add_trace(y = ~data4$R21, name = 'R2 Erorr')
+
+fig7 <- fig7 %>% layout(title = "Cross-Validation for N=50 lamnda=1.5",
+         xaxis = list(title = "bandwidth parameter h"),
+         yaxis = list(title = ""))
+text<-c("RMSE","MAE","R2")
+fig7 <- fig7 %>% add_annotations(text = text,
+                  x = data4$h1,
+                  y = text,
+                  xref = "x",
+                  yref = "y",
+                  font = list(family = 'Arial',
+                              size = 14,
+                              color = 'rgba(245, 246, 249, 1)'),
+                  showarrow = FALSE)
+
+fig7
+
+
+
+rmse2<-c()
+mae2<-c()
+R22<-c()
+
+rmse2<-c(rmse2,five_fold(train_50_5,1)[1],five_fold(train_50_5,0.5)[1],five_fold(train_50_5,0.2)[1])
+
+mae2<-c(mae2,five_fold(train_50_5,1)[2],five_fold(train_50_5,0.5)[2],five_fold(train_50_5,0.2)[2])
+
+R22<-c(R22,five_fold(train_50_5,1)[3],five_fold(train_50_5,0.5)[3],five_fold(train_50_5,0.2)[3])
+
+
+data5<-data.frame(h1,rmse2,mae2,R22)
+
+
+fig8 <- plot_ly(data5, x = ~h1, y =data5$rmse2, type = 'bar', name = 'Root Mean Squared Error',legendgroup = h1)
+fig8 <- fig8 %>% add_trace(y = ~data5$mae2, name = 'Mean Absolute Error')
+fig8 <- fig8 %>% add_trace(y = ~data5$R22, name = 'R2 Erorr')
+
+fig8 <- fig8 %>% layout(title = "Cross-Validation for N=50 lamnda=5",
+         xaxis = list(title = "bandwidth parameter h"),
+         yaxis = list(title = ""))
+
+fig8
+
+
+
+rmse3<-c()
+mae3<-c()
+R23<-c()
+
+rmse3<-c(rmse3,five_fold(train_200_1.5,1)[1],five_fold(train_200_1.5,0.5)[1],five_fold(train_200_1.5,0.2)[1])
+
+mae3<-c(mae3,five_fold(train_200_1.5,1)[2],five_fold(train_200_1.5,0.5)[2],five_fold(train_200_1.5,0.2)[2])
+
+R23<-c(R23,five_fold(train_200_1.5,1)[3],five_fold(train_200_1.5,0.5)[3],five_fold(train_200_1.5,0.2)[3])
+
+
+data6<-data.frame(h1,rmse3,mae3,R23)
+
+
+fig9 <- plot_ly(data6, x = ~h1, y =data6$rmse3, type = 'bar', name = 'Root Mean Squared Error',legendgroup = h1)
+fig9 <- fig9 %>% add_trace(y = ~data6$mae3, name = 'Mean Absolute Error')
+fig9 <- fig9 %>% add_trace(y = ~data6$R23, name = 'R2 Erorr')
+
+fig9 <- fig9 %>% layout(title = "Cross-Validation for N=200 lamnda=1.5",
+         xaxis = list(title = "bandwidth parameter h"),
+         yaxis = list(title = ""))
+
+fig9
+
+
+rmse5<-c()
+mae5<-c()
+R25<-c()
+
+rmse5<-c(rmse5,five_fold(train_200_5,1)[1],five_fold(train_200_5,0.5)[1],five_fold(train_200_5,0.2)[1])
+
+mae5<-c(mae5,five_fold(train_200_5,1)[2],five_fold(train_200_5,0.5)[2],five_fold(train_200_5,0.2)[2])
+
+R25<-c(R25,five_fold(train_200_5,1)[3],five_fold(train_200_5,0.5)[3],five_fold(train_200_5,0.2)[3])
+
+
+data7<-data.frame(h1,rmse5,mae5,R25)
+
+
+fig10 <- plot_ly(data7, x = ~h1, y =data7$rmse5, type = 'bar', name = 'Root Mean Squared Error',legendgroup = data7$rmse5)
+fig10 <- fig10 %>% add_trace(y = ~data7$mae5, name = 'Mean Absolute Error')
+fig10 <- fig10 %>% add_trace(y = ~data7$R25, name = 'R2 Erorr')
+
+fig10 <- fig10 %>% layout(title = "Cross-Validation for N=200 lamnda=5",
+         xaxis = list(title = "bandwidth parameter h"),
+         yaxis = list(title = ""))
+fig10 <- fig10 %>% layout(showlegend = TRUE)
+
+fig10
+```
+
+
+#Q1.3c
+#The Expected in-sample prediction error increase as h go to 1 .
+#N=200,lamda=5 create the highest Expected in-sample prediction error among all h =0.2,0.5,0.1.
+#N=50,lamda=1.5 create the lowest Expected in-sample prediction error among all h =0.2,0.5,0.1.
+
+
+```{r,message=FALSE,warning=FALSE,echo=FALSE,fig.width=5, fig.height=3}
+'Expected in-sample prediction error'
+
+h<-c(1,0.5,0.2)
+Err_in<-function(train,n,lamda){
+  h<-c(1,0.5,0.2)
+  Err_inx<-c()
+  test<-samp_func(n,lamda)
+  for (i in h){
+  Kreg<-Kernel_func(i,train,test[,1])#Build Kernel Regressio
+  Err_inx<-c(Err_inx,mean((Kreg[,2]-test[,2])^2))
+  }
+return(Err_inx)
+}
+
+#plot the data 
+h1<-c("1","0.5","0.2")
+
+data2<-data.frame(h1,Err_in(train_50_1.5,50,1.5),Err_in(train_50_5,50,5),Err_in(train_200_1.5,200,1.5),Err_in(train_200_5,200,5))
+
+fig1 <- plot_ly(data2, x = ~data2$h1, y = ~data2$Err_in.train_50_1.5..50..1.5., type = 'bar', name = 'N=50,lamda=1.5')
+fig1 <- fig1 %>% add_trace(y = ~data2$Err_in.train_50_5..50..5., name = 'N=50,lamda=5')
+fig1 <- fig1 %>% add_trace(y = ~data2$Err_in.train_200_1.5..200..1.5., name = 'N=200,lamda=1.5')
+fig1 <- fig1 %>% add_trace(y = ~data2$Err_in.train_200_5..200..5., name = 'N=200,lamda=5')
+
+fig1 <- fig1 %>% layout(yaxis = list(title = 'In-sample expected error [Err_in]'), barmode = 'group',xaxis = list(title = "bandwidth parameter h"))
+
+fig1
+```
+
+#Q1.3d 'Calculate EPE'
+
+#we can see that 'Estimate the out-of-sample expected prediction errorlower as h go to 1. 
+#N=50,lamda=5 create the highest 'Estimate the out-of-sample expected prediction error.
+#N=50,lamda=1.5 create the lowest Expected in-sample prediction error.
+#Then i conclute that lamda have mach more effect on the Estimate the out-of-sample expected prediction error then the number of the observation (N).
+
+```{r,message=FALSE,warning=FALSE,echo=FALSE,fig.width=5, fig.height=3}
+'Estimate the out-of-sample expected prediction error EPE'
+
+EPE<-function(train,test,h){
+  epe<-c()
+  for (j in h){
+    kreg<-Kernel_func(j,train,test[,1])
+    epe<-c(epe,mean((test[,2]-kreg[,2])^2))
+  }
+return(epe)  
+  
+}
+
+
+h<-c(0.2,0.5,1)
+#plot the data 
+h1<-c("1","0.5","0.2")
+
+data3<-data.frame(h1,EPE(train_50_1.5,test_50_1.5,h),EPE(train_50_5,test_50_5,h),EPE(train_200_1.5,test_200_1.5,h),EPE(train_200_5,test_50_5,h))
+
+fig2 <- plot_ly(data3, x = ~data3$h1, y = ~data3$EPE.train_50_1.5..test_50_1.5..h., type = 'bar', name = 'N=50,lamda=1.5')
+fig2 <- fig2 %>% add_trace(y = ~data3$EPE.train_50_5..test_50_5..h., name = 'N=50,lamda=5')
+fig2 <- fig2 %>% add_trace(y = ~data3$EPE.train_200_1.5..test_200_1.5..h., name = 'N=200,lamda=1.5')
+fig2 <- fig2 %>% add_trace(y = ~data3$EPE.train_200_5..test_50_5..h., name = 'N=200,lamda=5')
+
+fig2 <- fig2 %>% layout(yaxis = list(title = 'Out-Of-Sample Expected Prediction Error [EPE]'), barmode = 'group',xaxis = list(title = "bandwidth parameter h"))
+
+fig2
+
+```
+
+#Q1.4 Create the Quadratic Model
+```{r,message=FALSE,warning=FALSE,echo=FALSE,fig.width=5, fig.height=3}
+#Create the Quadratic Model N=50 lamda=1.5
+
+
+data_quadraticModel<-function(data,x0){
+  data<-as.data.frame(data)
+  x0<-as.data.frame(x0)
+  datax2=(data$x)^2
+  quadraticModel <-lm(data$y~data$x + datax2, data=data)
+  beta_hat<-as.vector(quadraticModel$coefficients)
+  x0<-as.vector(x0)
+  X<-cbind(rep(1),x0,x0^2)
+  X<-as.matrix(X)
+  y<-X %*% beta_hat
+  
+return(y)
+}
+  
+```
+
+#Q1.4 Calculate Eop
+#N=200,lamda=5 create the lowest expected optimism [Eop] of regression functionamong the other N and lamda in the graph.
+#N=50,lamda=1.5 create the highest  expected optimism [Eop] of regression function among the other N and lamda in the graph. we can see that lamda effect expected optimism [Eop] of regression function math more then the number of the observation (N)
+
+```{r,message=FALSE,warning=FALSE,echo=FALSE,fig.width=5, fig.height=3}
+
+#Calculate Eop
+Eop_quadraticModel<-function(data,n){
+  p<-data_quadraticModel(data,data[,1])
+  X1<-rep(1,n)
+  data1<-data.frame(data)
+  X<-cbind(X1,data1$x,(data1$x)^2)
+  W<-X%*%solve(t(X)%*%X)%*%t(X)
+  r<-(2*var(p)/n)*sum(diag(W)) 
+ return(r) 
+}
+
+#plot the data 
+
+fig3 <- plot_ly(
+  x = c("N=50,lamda=1.5", "N=50 , lamda=5", "N=200 lamda=1.5","N=200 lamda=5"),
+  y = c(Eop_quadraticModel(train_50_1.5,50), Eop_quadraticModel(train_50_5,50),Eop_quadraticModel(train_200_1.5,200),Eop_quadraticModel(train_50_5,200)),
+  name = "expected optimism [Eop] of regression function",
+  type = "bar")
+
+fig3 <- fig3 %>% layout(title = "expected optimism [Eop] of regression function")
+
+fig3
+```
+
+
+#Q1.4 Calculate Cross-Validation
+#Here we can see the N=50,lamda=5 give the highest rmse but also the highest R2 and N=200,lamda=1.5 give the the highest rmse but also the lowest  R2.
+#So we conclude there is trade-off between high R2 and lower rmse.
+#Also we can see that lamda have mach more effect on the Erorr measurement(RSE,MAE,R2) the number of the observation(N).
+
+
+```{r,message=FALSE,warning=FALSE,echo=FALSE,fig.width=5, fig.height=3}
+five_fold_quadraticModel<-function(data){
+  Erorr<-c()
+  set.seed(7)
+  r<-runif(length(data[,1]),min=0,max=1)#Generate randon vector in 0,1
+  data1<-cbind(data,r)
+  data_shuffle<-data1[order(data1[,3]),]
+  z<-rep(1:5,length(data[,1]))
+  data_shuffle<-cbind(data_shuffle,z)
+  # Create Sub-data 
+  for(i in 1:5) {
+    assign(paste0("data_",i),data_shuffle%>%as.data.frame()%>%select(x,y,z)%>%filter(z==i))
+  }
+  data_1<-as.matrix(data_1)[,c(1,2)]
+  data_2<-as.matrix(data_2)[,c(1,2)]
+  data_3<-as.matrix(data_3)[,c(1,2)]
+  data_4<-as.matrix(data_4)[,c(1,2)]
+  data_5<-as.matrix(data_5)[,c(1,2)]
+   #Calculate Root Square
+  RSQUARE <-function(y_actual,y_predict){
+    sum((y_predict-y_actual)^2)/(var(y_actual)*length(y_actual))
+  }
+    rmse1<-c()
+    mae1<-c()
+    r2<-c()
+    train<-rbind(data_2,data_3,data_4,data_5)
+    p<-data_quadraticModel(train,data_1[,1])
+    rmse1<-c(rmse1,rmse(data_1[,2],p))
+    mae1<-c(mae1,mae(data_1[,2],p))
+    r2<-c(r2,RSQUARE(data_1[,2],p))
+    
+    
+    train<-rbind(data_1,data_3,data_4,data_5)
+    p<-data_quadraticModel(train,data_2[,1])
+    rmse1<-c(rmse1,rmse(data_2[,2],p))
+    mae1<-c(mae1,mae(data_2[,2],p))
+    r2<-c(r2,RSQUARE(data_2[,2],p))
+    
+    
+    train<-rbind(data_1,data_2,data_4,data_5)
+    p<-data_quadraticModel(train,data_3[,1])
+    rmse1<-c(rmse1,rmse(data_3[,2],p))
+    mae1<-c(mae1,mae(data_3[,2],p))
+    r2<-c(r2,RSQUARE(data_3[,2],p))
+    
+    train<-rbind(data_1,data_3,data_2,data_5)
+    p<-data_quadraticModel(train,data_4[,1])
+    rmse1<-c(rmse1,rmse(data_4[,2],p))
+    mae1<-c(mae1,mae(data_4[,2],p))
+    r2<-c(r2,RSQUARE(data_4[,2],p))
+    
+    train<-rbind(data_1,data_3,data_4,data_2)
+    p<-data_quadraticModel(train,data_5[,1])
+    rmse1<-c(rmse1,rmse(data_5[,2],p))
+    mae1<-c(mae1,mae(data_5[,2],p))
+    r2<-c(r2,RSQUARE(data_5[,2],p))
+    
+    Erorr<-c(mean(rmse1),mean(mae1),mean(r2))
+    
+return(Erorr)  
+  
+}
+
+n<-c("N=50 , lamda=1.5 ","N=50 lamda=5","N=200 lamda=1.5","N=200 lamda=5")
+rmse5<-c()
+mae5<-c()
+R25<-c()
+
+rmse5<-c(rmse5,five_fold_quadraticModel(train_50_1.5)[1],five_fold_quadraticModel(train_50_5)[1],five_fold_quadraticModel(train_200_1.5)[1],five_fold_quadraticModel(train_200_5)[1])
+
+mae5<-c(rmse5,five_fold_quadraticModel(train_50_1.5)[2],five_fold_quadraticModel(train_50_5)[2],five_fold_quadraticModel(train_200_1.5)[2],five_fold_quadraticModel(train_200_5)[2])
+
+R25<-c(rmse5,five_fold_quadraticModel(train_50_1.5)[3],five_fold_quadraticModel(train_50_5)[3],five_fold_quadraticModel(train_200_1.5)[3],five_fold_quadraticModel(train_200_5)[3])
+
+
+data8<-data.frame(n,rmse5,mae5,R25)
+
+
+fig12 <- plot_ly(data8, x = ~data8$n, y =data8$rmse5, type = 'bar', name = 'Root Mean Squared Error')
+fig12 <- fig12 %>% add_trace(y = ~data8$mae5, name = 'Mean Absolute Error')
+fig12 <- fig12 %>% add_trace(y = ~data8$R25, name = 'R2 Erorr')
+
+fig12 <- fig12 %>% layout(title = "Cross-Validation for quadratic regression prediction",
+         xaxis = list(title = ""),
+         yaxis = list(title = ""))
+
+fig12
+
+```
+
+#Q1.4 Calculate in-sample expected error expected prediction error (EPE_in)
+#N=50,lamda=5 create the highest in-sample expected error expected prediction error.
+#N=50,lamda=1.5 create the highest in-sample expected error expected prediction error.
+
+#from the graph i conclude that lamda have much more effect on the in-sample expected error expected prediction error then the number of the observation(N).
+
+
+
+
+```{r,message=FALSE,warning=FALSE,echo=FALSE,fig.width=5, fig.height=3}
+EPE_in_quadraticModel<-function(data){
+    p<-data_quadraticModel(data,data[,1])
+    epe<-mean((data[,2] - p)^2)
+  
+return(epe)  
+}  
+
+#plot the data 
+
+fig4 <- plot_ly(
+  x = c("N=50,lamda=1.5", "N=50 , lamda=5", "N=200 lamda=1.5","N=200 lamda=5"),
+  y = c(EPE_in_quadraticModel(train_50_1.5), EPE_in_quadraticModel(train_50_5),EPE_in_quadraticModel(train_200_1.5),EPE_in_quadraticModel(train_200_5)),
+  name = "In-sample expected error (EPEIN) of regression function",
+  type = "bar")
+
+fig4 <- fig4 %>% layout(title = "In-sample expected error (EPE_IN) of regression function")
+  
+fig4
+
+```
+
+
+#Q1.4 Calculate out-of-sample expected prediction error (EPE)
+#N=50,lamda=5 create the lowest out-of-sample expected prediction error (EPE)
+#N=50,lamda=1.5 create the highest out-of-sample expected prediction error (EPE)
+
+#from the graph i conclude that lamda have much more effect on the out-of-sample expected prediction error (EPE) then the number of the observation(N).
+#Also the out-of-sample expected prediction error (EPE) and thein-sample expected error expected prediction errorhave negative trad.
+
+
+
+```{r,message=FALSE,warning=FALSE,echo=FALSE,fig.width=5, fig.height=3}
+EPE_quadraticModel<-function(train,test){
+    p<-data_quadraticModel(train,train[,1])
+    epe<-mean((test[,2] - p)^2)
+  
+return(epe)  
+}  
+
+#plot the data 
+
+fig5 <- plot_ly(
+  x = c("N=50,lamda=1.5", "N=50 , lamda=5", "N=200 lamda=1.5","N=200 lamda=5"),
+  y = c(EPE_quadraticModel(train_50_1.5,test_50_1.5), EPE_quadraticModel(train_50_5,test_50_5),EPE_quadraticModel(train_200_1.5,test_200_1.5),EPE_quadraticModel(train_200_5,test_200_5)),
+  name = "Out-sample expected error (EPEIN) of regression function",
+  type = "bar")
+
+fig5 <- fig5 %>% layout(title = "Out-sample expected error (EPE) of regression function")
+  
+fig5
+
+```
+
+
+
+
+
+#Q2.1
+```{r,message=FALSE,warning=FALSE,echo=FALSE,fig.width=5, fig.height=3}
+#Q2.1
+covid_data <- read_excel("daily new infections.xlsx")
+colnames(covid_data) <- c("Date", "Number_of_New_casses")
+covid_data$Date <- as.Date(covid_data$Date , format = "%d-%m-%Y")
+# kernal regression
+kernal <- ksmooth(x = covid_data$Date,y = covid_data$Number_of_New_casses,
+                  kernel =  "normal", bandwidth = 14)
+x<- kernal[["x"]]
+y <- kernal[["y"]]
+##plot
+plot(x= covid_data$Date,y=covid_data$Number_of_New_casses,
+     main = "kernel smoother for daily new covid-19 casses", 
+     xlab = "Date", ylab = "Number of New casses")
+lines(kernal, lwd = 2, col = 2)
+axis(1,covid_data$Date,format(covid_data$Date, "%d-%m-%y"),font = 1,lwd = 0.5)
+```
+#In the plot above we can see the a scatter plot of the number of daily new Covid cases.\n The regression line was fitted using kernel regression with a band-width of 14.\n The regression seems to be smooth and does not seem to capture much of the noise.
+
+#Q2.2
+```{r,message=FALSE,warning=FALSE,echo=FALSE}
+#Q2.2
+dif_rate <- diff(y)
+new_dat <- as.data.frame(cbind(covid_data$Date[-1],dif_rate))
+new_dat$Date <- covid_data$Date[-(1)]
+```
+
+```{r,message=FALSE,warning=FALSE,echo=FALSE,fig.width=5, fig.height=3}
+#plot Daily change in rate
+fig <- plot_ly(data = new_dat, x = ~Date, y = ~dif_rate) %>% 
+  add_trace(data=new_dat,x= ~Date, y = ~dif_rate, 
+            mode = "scatter",type="scatter",line=list(color="#8d93ab"))
+fig <- fig %>% layout(title = "Daily change in rate of new covid-19 detections per day ",
+                      yaxis = list(title = 'New Detections'), xaxis = list(title = "Date"))
+fig 
+
+```
+#The plot above shows the daily change in rate of new Covid cases. We van see that\n the growth of the rate is slower than when the rate is dropping. Meaning\n we have a steady\n climb and a more rapid fall. This could be do the fact, that\n once the number of new infections got\n to a certain level, the country went in to lock-down and stopped the growth. 
+
+#Time sereis plot
+```{r,message=FALSE,warning=FALSE,echo=FALSE,fig.width=5, fig.height=3}
+#converting to a time series data frame
+ts_data <- ts(covid_data[,2],start=1,frequency = 14)
+ts_data_dcom =  decompose(ts_data)
+plot(ts_data_dcom)
+```
+#This tome series plot decomposses an Additive model to its diffrernt componnents.\n We can see that the genral trend of the virus had two magor peaks.\nFrom the random componnent we can see that the random part does not follow a\n stochastic procces.meaning that the mean and variance of the random part is not steady over time.\n However if we were to split the data by the level of the trend we would see that for that time frame the random noise is stochastic
+
+#Q_3
+```{r,message=FALSE,warning=FALSE,echo=FALSE}
+#Q_3.1
+#reading data
+train_resp <- read.csv("train_resp.csv")# responses of training data.
+feature_valid <- read.csv("feature_valid.csv")#features for each validation image.
+feature_train <- read.csv("feature_train.csv")# features for each train image
+#images
+load("train_stim_1_250.Rdata")
+load("train_stim_251_500.Rdata")
+load("train_stim_501_750.Rdata")
+load("train_stim_751_1000.Rdata")
+load("train_stim_1001_1250.Rdata")
+load("train_stim_1251_1500.Rdata")
+#merging images
+joind_images = rbind(train_stim_1_250,train_stim_251_500,train_stim_501_750,train_stim_751_1000,train_stim_1001_1250,train_stim_1251_1500)
+#wav_pyr_real
+load("feature_pyramid.Rdata")
+#cleaning data
+#removing 0 clumns
+train_resp_new <- train_resp[, colSums(train_resp != 0) > 0]
+feature_valid_new <-feature_valid[, colSums(feature_valid != 0) > 0]
+feature_valid_new <- feature_valid_new[,-(1)]
+feature_train_new <-feature_train[, colSums(feature_train != 0) > 0]
+feature_train_new<-feature_train_new[,-(1)]
+###splitting to train and test for later
+set.seed(235)
+inds <- sample(x=1:nrow(train_resp_new),size = 250)
+#test set
+test_y <- train_resp_new[inds,]
+test_y <- test_y[,-(1)]
+test_x = feature_train_new[inds,]
+#train set
+train_resp_new <- train_resp_new[-inds,]
+feature_train_new <- feature_train_new[-inds,]
+```
+
+
+```{r,message=FALSE,warning=FALSE,echo=FALSE}
+#cross validation acrros all values of alpha from 0 to 1
+#voxel 1
+tuning_grid1 = tibble::tibble(
+alpha = seq(0, 1, by=0.1),
+mse_min = NA,
+mse_1se = NA,
+lambda_min = NA,
+lambda_1se = NA
+)
+for(i in seq_along(tuning_grid1$alpha)){
+# fit CV model for each alpha value
+fit = cv.glmnet(as.matrix(feature_train_new),train_resp_new[,2],alpha=tuning_grid1$alpha[i])
+# extract MSE and lambda values
+tuning_grid1$mse_min[i] = fit$cvm[fit$lambda == fit$lambda.min]
+tuning_grid1$mse_1se[i] = fit$cvm[fit$lambda == fit$lambda.1se]
+tuning_grid1$lambda_min[i] = fit$lambda.min
+tuning_grid1$lambda_1se[i] = fit$lambda.1se
+}
+tuning_grid1 <- tuning_grid1[order(tuning_grid1$mse_min,decreasing = F),]
+
+#voxel 2
+tuning_grid2 = tibble::tibble(
+alpha = seq(0, 1, by=0.1),
+mse_min = NA,
+mse_1se = NA,
+lambda_min = NA,
+lambda_1se = NA
+)
+for(i in seq_along(tuning_grid2$alpha)){
+# fit CV model for each alpha value
+fit = cv.glmnet(as.matrix(feature_train_new),train_resp_new[,3],alpha=tuning_grid2$alpha[i])
+# extract MSE and lambda values
+tuning_grid2$mse_min[i] = fit$cvm[fit$lambda == fit$lambda.min]
+tuning_grid2$mse_1se[i] = fit$cvm[fit$lambda == fit$lambda.1se]
+tuning_grid2$lambda_min[i] = fit$lambda.min
+tuning_grid2$lambda_1se[i] = fit$lambda.1se
+}
+tuning_grid2 <- tuning_grid2[order(tuning_grid2$mse_min,decreasing = F),]
+
+#voxel 3
+tuning_grid3 = tibble::tibble(
+alpha = seq(0, 1, by=0.1),
+mse_min = NA,
+mse_1se = NA,
+lambda_min = NA,
+lambda_1se = NA
+)
+for(i in seq_along(tuning_grid3$alpha)){
+# fit CV model for each alpha value
+fit = cv.glmnet(as.matrix(feature_train_new),train_resp_new[,4],alpha=tuning_grid3$alpha[i])
+#extract MSE and lambda values
+tuning_grid3$mse_min[i] = fit$cvm[fit$lambda == fit$lambda.min]
+tuning_grid3$mse_1se[i] = fit$cvm[fit$lambda == fit$lambda.1se]
+tuning_grid3$lambda_min[i] = fit$lambda.min
+tuning_grid3$lambda_1se[i] = fit$lambda.1se
+}
+tuning_grid3 <- tuning_grid3[order(tuning_grid3$mse_min,decreasing = F),]
+#optimal model for each voxel
+v1_mod <- glmnet(feature_train_new,train_resp_new$V1,alpha=tuning_grid1[1,1],lambda = tuning_grid1[1,4])
+v2_mod <- glmnet(as.matrix(feature_train_new),train_resp_new$V2,alpha=tuning_grid2[1,1],lambda =tuning_grid2[1,4])
+v3_mod <- glmnet(as.matrix(feature_train_new),train_resp_new$V3,alpha=tuning_grid3[1,1],lamba =tuning_grid3[1,4])
+```
+
+```{r,message=FALSE,warning=FALSE,echo=FALSE}
+#top models and there parameters 
+top_model_stat <- rbind(tuning_grid1[1,],tuning_grid2[1,],tuning_grid3[1,])
+rownames(top_model_stat)<- c("Voxel_1","Voxle_2","Voxel_3")
+top_model_stat %>%
+  kbl(caption = "Best model for each voxel",) %>%
+  kable_material_dark("hover",full_width = F)
+```
+#In the table above, we see the best model for each voxel and some of thiere parameters\n and other stats. these results are from after running a ten fold croos-validation on each model\n. WE can see the the best response is for V1.   
+
+
+```{r,message=FALSE,warning=FALSE,echo=FALSE,fig.width=5, fig.height=3}
+#plot of the average mean of each voxel by all valus of alpha
+joind_grid = rbind(tuning_grid1,tuning_grid2,tuning_grid3)
+plot_dat = joind_grid %>% group_by(alpha) %>% summarise(avg_mse= mean(mse_min))
+
+fig4 <- plot_ly(data = plot_dat, x = ~alpha, y = ~avg_mse) %>% 
+  add_trace(data=plot_dat,x= ~alpha, y = ~avg_mse, 
+            mode = "scatter",type="scatter",line=list(color="#8d93ac"))
+fig4 <- fig4 %>% layout(title = "The Average Min Mse for all Voxels by Alpha",
+                      yaxis = list(title = 'avg Min Mse'), xaxis = list(title = "Alpha"))
+fig4
+```
+#In the plot above, we can see the mean mse across all voxels for every alpha.\n we can see that on average the model with the best response is the elastic model\n with alpha equal to 0.2.
+
+#Q_3.2(1)
+#Feature covariates
+```{r,message=FALSE,warning=FALSE,echo=FALSE}
+#most important features
+coef = v1_mod$beta
+sd_x = as.matrix(feature_train_new)
+sd_x = apply(sd_x, 2, sd)
+important = as.data.frame((sd_x * coef@x))
+colnames(important)[1]= "metric"
+important$feature <- c(row.names(important))
+row.names(important)<- seq(1,length(important$feature))
+important <- important[order(important$metric,decreasing = T), ]
+top_feat = as.data.frame(important[1:10,]) #features to examine
+index = rownames(top_feat)
+index = as.numeric(index)
+```
+
+```{r,message=FALSE,warning=FALSE,echo=FALSE}
+#examining the features 
+wav_pyr_real= as.matrix(wav_pyr_real)
+wav_pyr_im= as.matrix(wav_pyr_im)
+#top-ten features 
+par(mfrow = c(2,5))
+for (i in index) {
+  image(t(matrix(wav_pyr_real[,i], nrow = 128)[128:1,]),col = grey.colors(90))
+  title(line = -1, outer = F,main = i)
+}
+title(line = -1.3, outer = TRUE,main ="Most Important Features",
+      sub = "Rating featrue's importance to the respons, using a metric: sd(feature)*coeff(feature)")
+```
+#In the images above we can see the most imortant features. WE raited the importance by a metric which is the feature coeficiant multiplyed by the sd(feature). There is a direct connection between the coefficiant and the response. However if the sd of the variable is low then even with a high coefficiant the effect of the feature on the response is still low. We can not see a pattern between the features orientation or size. It seems to have multiple sizes, orientations and location in the image. 
+
+#Q_3.2(2)
+#Linearity of response:
+```{r,message=FALSE,warning=FALSE,echo=FALSE,fig.width=5, fig.height=4}
+linear_mod <- lm(train_resp_new$V1~feature_train_new[,"V33"])
+most_imp_feat = feature_train_new[,"V33"]
+plot(x=most_imp_feat,y= train_resp_new$V1, pch = 1,main = "Response of Voxel_1 VS The Most Important Feature", col = "blue", xlab = "V33", ylab = "Response_values_of_Voxel_1")
+abline(linear_mod, col = "red")
+
+```
+#In the plot above we can see that there does not seem to be a linear connection\n perhaps since there are so many features no single feature is highly correlated\n with the with the response. 
+
+#Q_3.2(3)
+#The example domain
+```{r,message=FALSE,warning=FALSE,echo=FALSE}
+#prediction
+pred = as.data.frame(predict(object = v1_mod, s=tuning_grid1$lambda_min[1], newx =as.matrix(test_x)))
+colnames(pred) = c("y")
+pred$pic_num = rownames(pred)
+#rownames(pred)= seq(1,250,1)
+pred = pred[order(pred$y,decreasing = T),]
+#pic_index <- pred$pic_num
+top_pic = as.numeric(pred$pic_num[1:4])
+low_pic = as.numeric(pred$pic_num[247:250])
+#printing images with highest prediction 
+par(mfrow = c(2,2))
+for(i in top_pic) {
+  image(t(matrix(joind_images[i,], nrow = 128)[128:1,]),col = grey.colors(100))
+  title(line = 1.4, outer = F, main = i)
+}
+title(line = -1.2, outer = T, main ="Images of the highest predctions")
+#printing images with lowest prediction
+par(mfrow = c(2,2))
+for(i in low_pic) {
+  image(t(matrix(joind_images[i,], nrow = 128)[128:1,]),col = grey.colors(100))
+  title(line = 1.4, outer = F, main = i)
+}
+title(line = -1.2, outer = T, main ="Images of the lowest predctions")
+```
+
+#The four lowest predictions do not have much seperaton lines in the oval space.\n most of the oval is an emty view and the main image takes only a small portion of oval.\n In compartment to the highest prediction set, the main part of the image takes up most, if not all, of the oval space.In highest set the images stand out individually with out any surrounding emptiness.    
+
+#Q_3.3
+```{r,message=FALSE,warning=FALSE,echo=FALSE}
+#predicting each voxel by its best model
+pred1 = predict(object = v1_mod, s=tuning_grid1$lambda_min[1], newx =as.matrix(feature_valid_new))
+pred2 = predict(object = v2_mod, s=tuning_grid2$lambda_min[1], newx =as.matrix(feature_valid_new))
+pred3 = predict(object = v3_mod, s=tuning_grid3$lambda_min[1], newx =as.matrix(feature_valid_new))
+##
+preds <- cbind(pred1,pred2,pred3)
+rownames(preds) <- seq(1,250,1)
+colnames(preds) <- c("Y1","Y2","Y3") 
+#computing RMSPE
+mse1 <- mean((pred1 - test_y[,1])^2)
+rms_1 <- sqrt(mse1)
+mse2 <- mean((pred2 - test_y[,2])^2)
+rms_2 <- sqrt(mse2)
+mse3 <- mean((pred3 - test_y[,3])^2)
+rms_3 <- sqrt(mse3)
+rmspes <- c(rms_1,rms_2,rms_3)
+
+```
+
+```{r,message=FALSE,warning=FALSE,echo=FALSE}
+#saving the data
+save(preds, rmspes, file = "results.RData")
+```
+
