@@ -1,9 +1,9 @@
-# Statistical-Learning-Lab3
+# Lab 3-Nadaraya–Watson kernel regression
 ### **The lab have 3 part:**
 **Part 1 Simulation:**</br>
 This lab started by Implementing by hand a Kernel Regression a non-parametric regression. </br>
 Also, Implement by hand 5 cross-validation.</br>
-Compute different Error Measures : </br>
+Compute different Error Measures: </br>
 1.EOP= Expected optimism of regression function.</br>
         
 $$EOP=\frac{2\sigma^{2}}{n}Tr(W)\ \ \ ,W\in\mathbb{R}^{n\times n} \ \ weight\ matrix$$.
